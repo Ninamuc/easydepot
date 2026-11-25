@@ -107,9 +107,47 @@
     const { checks, warnings, kind, ...snap } = r;
     snap.id = snap.depotId + '@' + snap.date;
     snap.importedAt = new Date().toISOString();
-    state.data.snapshots = state.data.snapshots.filter((s) => s.id !== snap.id).concat([snap]);
+    // echte Daten ersetzen die Beispieldaten
+    state.data.snapshots = state.data.snapshots.filter((s) => s.id !== snap.id && !s.demo).concat([snap]);
     save();
     renderPending();
+  }
+
+  // ---------- Beispieldaten (erfunden) ----------
+  function makeDemo() {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const today = new Date();
+    const iso = (d) => d.toISOString().slice(0, 10);
+    const day = (n) => { const d = new Date(today); d.setDate(d.getDate() - n); return iso(d); };
+    const P = [
+      ['Aktien Welt ETF', 'Aktienfonds', 4200, 98.4], ['Aktien Europa ETF', 'Aktienfonds', 3100, 41.2],
+      ['Schwellenländer Fonds', 'Aktienfonds', 900, 152.7], ['Staatsanleihen Euro 2028', 'Rentenfonds', 2500, 101.3],
+      ['Geldmarkt Euro Fonds', 'Geldmarktfonds', 1800, 88.1], ['Mischfonds Ausgewogen', 'Mischfonds', 650, 176.0],
+      ['Gold-Zertifikat', 'Sonstige Zertifikate', 400, 104.5],
+    ];
+    const positions = P.map(([name, category, qty, price], i) => ({ isin: 'XX00DEMO000' + i, name, category, qty, price, priceCcy: 'EUR', value: Math.round(qty * price * 100) / 100 }));
+    const sec = positions.reduce((s, p) => s + p.value, 0);
+    positions.forEach((p) => (p.weight = Math.round((p.value / (sec + 25000)) * 10000) / 100));
+    const total = sec + 25000;
+    const points = [];
+    let v = total * 0.985;
+    for (let n = 120; n >= 1; n--) {
+      v *= 1 + (rnd() - 0.48) * 0.008;
+      points.push({ date: day(n), securities: Math.round(v - 25000), cash: 25000, total: Math.round(v) });
+    }
+    points.push({ date: day(0), securities: Math.round(sec), cash: 25000, total: Math.round(total) });
+    return {
+      demo: true, source: 'mywealth', bank: 'Beispiel', custodian: 'Beispielbank', depotId: 'demo', depotNr: '0000000000',
+      id: 'demo@' + day(0), date: day(0), positions, cash: [{ name: 'Euro', ccy: 'EUR', value: 25000, weight: 1 }],
+      securitiesTotal: sec, cashTotal: 25000, total,
+      transactions: [
+        { date: day(6), type: 'Kauf', isin: positions[1].isin, name: positions[1].name, qty: 500, price: 42.0, priceCcy: 'EUR', amount: 21000 },
+        { date: day(20), type: 'Verkauf', isin: positions[4].isin, name: positions[4].name, qty: -300, price: 87.9, priceCcy: 'EUR', amount: -26370 },
+      ],
+      history: { points, approx: true },
+      plan: { startDate: day(120), startAmount: Math.round(total * 0.98 / 1000) * 1000, targetReturn: 0.045, horizonYears: 9, product: 'Beispiel-Vermögensverwaltung' },
+    };
   }
 
   // ---------- Sheet ----------
@@ -217,7 +255,10 @@
   }
   function renderInner() {
     const model = E.buildModel(state.data.snapshots, state.data.depotMeta);
-    if (!model.depots.length) return renderEmpty();
+    if (!model.depots.length) {
+      const s = state.view.name === 'slot' && slotList(model).find((x) => x.id === state.view.id);
+      return s ? renderSlot(model, s) : renderStart(model);
+    }
     if (state.view.name === 'depot') {
       const d = model.depots.find((x) => x.id === state.view.id);
       if (d) return renderDepot(model, d);
@@ -233,13 +274,19 @@
     renderHome(model);
   }
 
-  function renderEmpty() {
+  // Start ohne Daten: gleiche Struktur wie später, dazu Beispiel zum Ausprobieren
+  function renderStart(m) {
     $app.innerHTML = `
       ${topBar()}
+      ${depotTabs(m, 'home')}
       <div class="card empty">
         <h1>Alle Depots auf einen Blick</h1>
         <p>Füge eine Depot-Übersicht als PDF hinzu. EasyDepot liest die Positionen und rechnet aus, wie sich das Vermögen entwickelt, ohne dass Käufe als Gewinn zählen.</p>
-        <button data-act="pick">PDF hinzufügen</button>
+        <div class="actions" style="justify-content:center">
+          <button data-act="pick">PDF hinzufügen</button>
+          <button class="soft" data-act="demo">Beispiel ansehen</button>
+        </div>
+        <p class="muted small" style="margin-top:10px">„Beispiel ansehen“ zeigt erfundene Zahlen, damit du alles ausprobieren kannst. Sie verschwinden, sobald du ein echtes PDF hinzufügst.</p>
         <div class="howto muted">
           <b>So bekommst du das PDF von myWealth</b>
           <ol>
@@ -257,6 +304,7 @@
     return `<header class="top">
       ${back ? '<button class="ghost back" data-act="home">‹ Übersicht</button>' : '<div class="brand">Easy<span>Depot</span></div>'}
       <button data-act="pick">PDF hinzufügen</button></header>
+      ${state.data.snapshots.some((s) => s.demo) ? `<div class="note demo-bar"><span><b>Beispieldaten</b> – erfundene Zahlen zum Ausprobieren.</span><button class="ghost" data-act="undemo">Beispiel entfernen</button></div>` : ''}
       ${storageOk ? '' : '<div class="note" style="margin-bottom:12px">Dieser Browser erlaubt kein dauerhaftes Speichern. Die Daten gehen beim Schließen verloren – bitte „Sicherung speichern“ nutzen.</div>'}`;
   }
   function privacyNote() {
@@ -515,6 +563,8 @@
       case 'depot': state.view = { name: 'depot', id: v }; state.sort = 'value'; render(); window.scrollTo(0, 0); break;
       case 'home': state.view = { name: 'home' }; render(); window.scrollTo(0, 0); break;
       case 'slot': state.view = { name: 'slot', id: v }; render(); window.scrollTo(0, 0); break;
+      case 'demo': state.data.snapshots = state.data.snapshots.filter((s) => !s.demo).concat([makeDemo()]); save(); state.view = { name: 'home' }; render(); break;
+      case 'undemo': state.data.snapshots = state.data.snapshots.filter((s) => !s.demo); save(); state.view = { name: 'home' }; render(); break;
       case 'manage': state.view = { name: 'manage' }; render(); window.scrollTo(0, 0); break;
       case 'sort': state.sort = v; render(); break;
       case 'delsnap':
