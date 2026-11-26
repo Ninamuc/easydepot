@@ -302,7 +302,7 @@
 
   function topBar(back) {
     return `<header class="top">
-      ${back ? '<button class="ghost back" data-act="home">‹ Übersicht</button>' : '<div class="brand">Easy<span>Depot</span></div>'}
+      ${back ? '<button class="ghost back" data-act="home">‹ Übersicht</button>' : '<div class="brand"><img src="icon.svg" alt=""><b>Easy<span>Depot</span></b></div>'}
       <button data-act="pick">PDF hinzufügen</button></header>
       ${state.data.snapshots.some((s) => s.demo) ? `<div class="note demo-bar"><span><b>Beispieldaten</b> – erfundene Zahlen zum Ausprobieren.</span><button class="ghost" data-act="undemo">Beispiel entfernen</button></div>` : ''}
       ${storageOk ? '' : '<div class="note" style="margin-bottom:12px">Dieser Browser erlaubt kein dauerhaftes Speichern. Die Daten gehen beim Schließen verloren – bitte „Sicherung speichern“ nutzen.</div>'}`;
